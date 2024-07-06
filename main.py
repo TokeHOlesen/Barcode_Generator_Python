@@ -112,3 +112,14 @@ def encode_barcode(barcode_number: str) -> str:
     left_side = encode_left_side(barcode_number)
     right_side = encode_right_side(barcode_number)
     return f"{side_guard}{left_side}{middle_guard}{right_side}{side_guard}"
+
+
+def generate_pbm_file(bit_string: str):
+    """Generates a temporary graphical file with the barcode, with a given height and a width of 95 pixels."""
+    height = 40
+    with open("barcode.pbm", "w") as output_file:
+        output_file.write("P1\n")
+        output_file.write("# Barcode\n")
+        output_file.write(f"95 {height}\n")
+        for _ in range(height):
+            output_file.write(f"{bit_string}\n")
