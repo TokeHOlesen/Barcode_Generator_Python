@@ -28,6 +28,9 @@ right_encoding = {
     9: 116
 }
 
+# Values for encoding the very first digit of EAN-13 barcodes. The digit is encoded within the following 6 digits as a
+# combination of their parity, where odd parity = 0 and even parity = 1.
+# For example, the digit one is encoded as 11, that is binary 001011, or "odd", "odd", "even", "odd", "even", "even".
 ean_13_encoding = {
     0: 0,
     1: 11,
@@ -41,31 +44,32 @@ ean_13_encoding = {
     9: 26
 }
 
+side_guard = "101"
+middle_guard = "01010"
 
-def checksum_is_correct(barcode_number: int) -> bool:
+
+def checksum_is_correct(barcode_number: str) -> bool:
     """Returns True if the checksum number is correct."""
-    check_digit = barcode_number % 10
-    number_string = str(barcode_number)[:-1]
-    # If the number is in the UPC format, appends a leading zero.
-    number_string = f"0{number_string}" if len(number_string) == 11 else number_string
-    sum = 0
-    for i in range(len(number_string)):
+    check_digit = int(barcode_number[-1])
+    barcode_number = barcode_number[:-1]
+    checksum = 0
+    for i, digit in enumerate(barcode_number):
         # Note: because of 0-based indexing, we're adding to odd_sum when i is even and vice versa.
         if i % 2 == 0:
-            sum += int(number_string[i])
+            checksum += int(digit)
         else:
-            sum += int(number_string[i]) * 3
-    result = 0 if (sum % 10) == 0 else 10 - (sum % 10)
-    return check_digit == result
-    
+            checksum += int(digit) * 3
+    checksum = 0 if (checksum % 10) == 0 else 10 - (checksum % 10)
+    return check_digit == checksum
+
 
 def encode_digit(digit: int, parity=None) -> str:
     """
-    Encodes a digit into a string of 7 bits and returns it. If the optional keyword argument "parity" is provided (0 or
-    1), uses left-hand encoding and returns a bit string with the requested parity.
+    Encodes a digit into a string of 7 bits and returns it. If the optional keyword argument "parity" is provided
+    (0 or 1), uses left-hand encoding and returns a bit string with the requested parity.
     If no "parity" keyword argument is provided, uses right-hand encoding.
     """
-    if not parity is None:
+    if parity is not None:
         value = left_encoding[digit][parity]
     else:
         value = right_encoding[digit]
@@ -73,3 +77,38 @@ def encode_digit(digit: int, parity=None) -> str:
     for i in range(6, -1, -1):
         bit_string += str(value >> i & 1)
     return bit_string
+
+
+def encode_left_side(barcode_number: str) -> str:
+    """
+    Encodes the left-hand side of the barcode (the first 7 digits) and returns a string of bits.
+    The first digit is encoded as a combination of left and right parity values of the other 6 digits.
+    The encoding follows the values of bits of the numbers in ean_13_encoding.
+    For example, 5 would translate to 101, or "even", "odd", "even".
+    Then uses the bit as the key to get the correct value from left_encoding.
+    """
+    country_digit = int(barcode_number[0])
+    left_digits = barcode_number[1:7]
+    output = ""
+    for i, digit in enumerate(left_digits):
+        # Gets the bit to be used as the key to get the correct value from left_encoding
+        parity = ean_13_encoding[country_digit] >> (5 - i) & 1
+        output += encode_digit(int(digit), parity)
+    return output
+
+
+def encode_right_side(barcode_number: str) -> str:
+    """Encodes the right-hand side of the barcode (the final 6 digits) and returns a string of bits."""
+    right_digits = barcode_number[7:]
+    print(right_digits)
+    output = ""
+    for digit in right_digits:
+        output += encode_digit(int(digit))
+    return output
+
+
+def encode_barcode(barcode_number: str) -> str:
+    """Returns the entire barcode as a string of bits."""
+    left_side = encode_left_side(barcode_number)
+    right_side = encode_right_side(barcode_number)
+    return f"{side_guard}{left_side}{middle_guard}{right_side}{side_guard}"
