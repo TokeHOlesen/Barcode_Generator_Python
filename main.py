@@ -1,9 +1,11 @@
+import io
+from PIL import Image, ImageDraw, ImageFont
 from typing import Generator
 
 SIDE_GUARD = "101"
 MIDDLE_GUARD = "01010"
-DIGITS_PER_SIDE = {"EAN-13": 6, "UPC": 6, "EAN-8": 4}
-UNITS_PER_SIDE = {"EAN-13": 42, "UPC": 42, "EAN-8": 28}
+DIGITS_PER_SIDE = {"EAN-13": 6, "UPC-A": 6, "EAN-8": 4}
+UNITS_PER_SIDE = {"EAN-13": 42, "UPC-A": 42, "EAN-8": 28}
 
 # Values for encoding the left-hand side of the barcode, in decimal.
 # For EAN-13, the values with key 0 have odd parity (Set A), while those with key 1 have even parity (Set B).
@@ -35,7 +37,7 @@ right_encoding = {
     9: 116
 }
 
-# Values for encoding the very first digit of EAN-13 barcodes. The digit is encoded within the following 6 digits as a
+# Values for encoding the very first digit of EAN-13 barcodes. The digit is encoded within the left-side 6 digits as a
 # combination of their parity, where odd parity = 0 and even parity = 1.
 # For example, the digit one is encoded as 11, that is binary 001011, or "odd", "odd", "even", "odd", "even", "even".
 ean_13_encoding = {
@@ -53,10 +55,42 @@ ean_13_encoding = {
 
 
 def main():
-    barcode = "812345678901"
+    barcode = "076950450479"
+    unit_width = 6
+    height = 300
+    notch_height = 30
+    border = 50
     barcode_type = get_type(barcode)
+    text_left, text_right = get_display_numbers(barcode, barcode_type)
     barcode_string = encode_barcode(barcode, type=barcode_type)
-    generate_pbm_file(barcode_string, unit_width=6, barcode_height=350, notch_height=35, border=50, type=barcode_type)
+    pbm_data = generate_pbm_data(barcode_string, unit_width=unit_width, barcode_height=height, notch_height=notch_height, border=border, type=barcode_type)
+    pbm_memory_file = io.BytesIO(pbm_data.encode("utf-8"))        
+    pillow_image = Image.open(pbm_memory_file)
+    pillow_image = pillow_image.convert("RGB")
+    font = ImageFont.truetype("OCR-B.ttf", unit_width * 8)
+    draw = ImageDraw.Draw(pillow_image)
+    left_text_x_pos = border + unit_width * 3 + unit_width
+    right_text_x_pos = border + unit_width * 3 + unit_width * (47 - int(barcode_type == "EAN-8") * 14)
+    text_y_pos = border + height + int(unit_width * 1.5)
+    draw.text((left_text_x_pos, text_y_pos), text_left, fill="black", anchor="lt", font=font)
+    draw.text((right_text_x_pos, text_y_pos), text_right, fill="black", anchor="lt", font=font)
+    pillow_image.show()
+
+
+def get_display_numbers(barcode: str, barcode_type: str):
+    match barcode_type:
+        case "EAN-13":
+            text_left = barcode[1:7]
+            text_right = barcode[7:]
+        case "UPC-A":
+            text_left = barcode[0:6]
+            text_right = barcode[6:]
+        case "EAN-8":
+            text_left = barcode[0:4]
+            text_right = barcode[4:]
+        case _:
+            raise ValueError("Incorrect barcode")
+    return text_left, text_right
 
 
 def checksum_is_correct(barcode_number: str) -> bool:
@@ -67,10 +101,7 @@ def checksum_is_correct(barcode_number: str) -> bool:
     barcode_number = barcode_number[-2::-1]
     checksum = 0
     for i, digit in enumerate(barcode_number):
-        if i % 2 == 0:
-            checksum += int(digit) * 3
-        else:
-            checksum += int(digit) * 1
+        checksum += int(digit) * 3 if i % 2 == 0 else int(digit)
     checksum = 0 if (checksum % 10) == 0 else 10 - (checksum % 10)
     return check_digit == checksum
 
@@ -84,7 +115,7 @@ def get_type(barcode: str) -> str:
         case 13:
             return "EAN-13"
         case 12:
-            return "UPC"
+            return "UPC-A"
         case 8:
             return "EAN-8"
         case _:
@@ -135,7 +166,7 @@ def encode_right_side(barcode_number: str, type: str) -> str:
 def encode_barcode(barcode_number: str, type: str="EAN-13") -> str:
     """Returns the entire barcode as a string of bits."""
     # Adds a leading zero if the barcode is in UPC or EAN-13 format.
-    barcode_number = "0" + barcode_number if type in ["UPC", "EAN-8"] else barcode_number
+    barcode_number = "0" + barcode_number if type in ["UPC-A", "EAN-8"] else barcode_number
     left_side = encode_left_side(barcode_number, type)
     right_side = encode_right_side(barcode_number, type)
     return f"{SIDE_GUARD}{left_side}{MIDDLE_GUARD}{right_side}{SIDE_GUARD}"
@@ -149,28 +180,29 @@ def generate_notches(unit_width: int, type="EAN-13") -> str:
     return f"{side}{empty_space}{middle}{empty_space}{side}"
     
 
-def generate_pbm_file(bit_string: str,
+def generate_pbm_data(bit_string: str,
                       type: str="EAN-13",
                       unit_width: int=1,
                       barcode_height: int=40,
                       notch_height: int=0,
-                      border: int=0):
-    """Generates a PBM graphical file with the barcode."""
+                      border: int=0,
+                      text: bool=True) -> str:
+    """Returns a string containing the barcode image data in PBM format."""
     width: int = len(bit_string) * unit_width + border * 2
-    height: int = barcode_height + notch_height + border * 2
+    height: int = barcode_height + max(int(unit_width * 9.5), notch_height) + border * 2
     side_border: str = "0" * border
-    top_and_bottom_border_lines = ["0" * width + "\n"] * border
-    barcode_lines = [side_border + "".join(bit * unit_width for bit in bit_string) + side_border + "\n"] * barcode_height
+    top_border_lines: str = (("0" * width) + "\n") * border
+    bottom_border_lines: str = (("0" * width) + "\n") * (border + max(int(unit_width * 9.5), notch_height))
+    barcode_lines: str = (side_border + "".join(bit * unit_width for bit in bit_string) + side_border + "\n") * barcode_height
     
-    with open("barcode.pbm", "w") as output_file:
-        output_file.write(f"P1\n# {type} BARCODE\n{width} {height}\n")
-        output_file.writelines(top_and_bottom_border_lines)
-        output_file.writelines(barcode_lines)
-        if notch_height:
-            notch_lines = ["".join((side_border, generate_notches(unit_width, type), side_border, "\n"))] * notch_height
-            output_file.writelines(notch_lines) 
-        output_file.writelines(top_and_bottom_border_lines)
-
+    pbm_data = f"P1\n# {type} BARCODE\n{width} {height}\n"
+    pbm_data += top_border_lines
+    pbm_data += barcode_lines
+    if notch_height:
+        pbm_data += ("".join((side_border, generate_notches(unit_width, type), side_border, "\n"))) * notch_height
+    pbm_data += bottom_border_lines
+    return pbm_data
+    
 
 if __name__ == "__main__":
     main()
