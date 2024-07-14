@@ -55,15 +55,17 @@ ean_13_encoding = {
 
 
 def main():
-    barcode = "076950450479"
+    barcode = "044670012826"
     unit_width = 6
     height = 300
     notch_height = 30
     border = 50
     barcode_type = get_type(barcode)
-    text_left, text_right = get_display_numbers(barcode, barcode_type)
-    barcode_string = encode_barcode(barcode, type=barcode_type)
+    leading_digit, left_digits, right_digits = get_number_groups(barcode, barcode_type)
+    
+    barcode_string = encode_barcode(leading_digit, left_digits, right_digits)
     pbm_data = generate_pbm_data(barcode_string, unit_width=unit_width, barcode_height=height, notch_height=notch_height, border=border, type=barcode_type)
+    
     pbm_memory_file = io.BytesIO(pbm_data.encode("utf-8"))        
     pillow_image = Image.open(pbm_memory_file)
     pillow_image = pillow_image.convert("RGB")
@@ -72,25 +74,18 @@ def main():
     left_text_x_pos = border + unit_width * 3 + unit_width
     right_text_x_pos = border + unit_width * 3 + unit_width * (47 - int(barcode_type == "EAN-8") * 14)
     text_y_pos = border + height + int(unit_width * 1.5)
-    draw.text((left_text_x_pos, text_y_pos), text_left, fill="black", anchor="lt", font=font)
-    draw.text((right_text_x_pos, text_y_pos), text_right, fill="black", anchor="lt", font=font)
+    draw.text((left_text_x_pos, text_y_pos), left_digits, fill="black", anchor="lt", font=font)
+    draw.text((right_text_x_pos, text_y_pos), right_digits, fill="black", anchor="lt", font=font)
     pillow_image.show()
 
 
-def get_display_numbers(barcode: str, barcode_type: str):
-    match barcode_type:
-        case "EAN-13":
-            text_left = barcode[1:7]
-            text_right = barcode[7:]
-        case "UPC-A":
-            text_left = barcode[0:6]
-            text_right = barcode[6:]
-        case "EAN-8":
-            text_left = barcode[0:4]
-            text_right = barcode[4:]
-        case _:
-            raise ValueError("Incorrect barcode")
-    return text_left, text_right
+def get_number_groups(barcode_number: str, barcode_type: str) -> tuple[int, str, str]:
+    first_digit = {"EAN-13": 1, "UPC-A": 0, "EAN-8": 0}
+    digits_per_side = {"EAN-13": 7, "UPC-A": 6, "EAN-8": 4}
+    leading_digit = int(barcode_number[0]) if barcode_type == "EAN-13" else 0
+    left_digits = barcode_number[first_digit[barcode_type]:digits_per_side[barcode_type]]
+    right_digits = barcode_number[digits_per_side[barcode_type]:]
+    return leading_digit, left_digits, right_digits
 
 
 def checksum_is_correct(barcode_number: str) -> bool:
@@ -138,17 +133,14 @@ def encode_digit(digit: int, parity=None) -> str:
     return "".join(str(bit) for bit in get_bits(value, 7))
 
 
-def encode_left_side(barcode_number: str, type: str) -> str:
+def encode_left_side(leading_digit: int, left_digits: str) -> str:
     """
     Encodes the left-hand side of the barcode (the first 7 digits) and returns a string of bits.
-    The first digit is encoded as a combination of left and right parity values of the other 6 digits.
+    The leading digit is encoded as a combination of left and right parity values of the other 6 digits.
     The encoding follows the values of bits of the numbers in ean_13_encoding.
     For example, 5 would translate to 101, or "even", "odd", "even".
     Then uses the bit as the key to get the correct value from left_encoding.
     """
-    leading_digit = int(barcode_number[0])
-    left_digits = barcode_number[1:(DIGITS_PER_SIDE[type] + 1)]
-    
     output = ""
     for i, digit in enumerate(left_digits):
         # Gets the bit to be used as the key to get the correct value from left_encoding.
@@ -157,23 +149,20 @@ def encode_left_side(barcode_number: str, type: str) -> str:
     return output
 
 
-def encode_right_side(barcode_number: str, type: str) -> str:
+def encode_right_side(right_digits: str) -> str:
     """Encodes the right-hand side of the barcode (the final 6 digits) and returns a string of bits."""
-    right_digits = barcode_number[(DIGITS_PER_SIDE[type] + 1):]
     return "".join(encode_digit(int(digit)) for digit in right_digits)
 
 
-def encode_barcode(barcode_number: str, type: str="EAN-13") -> str:
+def encode_barcode(leading_digit: int, left_digits: str, right_digits: str) -> str:
     """Returns the entire barcode as a string of bits."""
-    # Adds a leading zero if the barcode is in UPC or EAN-13 format.
-    barcode_number = "0" + barcode_number if type in ["UPC-A", "EAN-8"] else barcode_number
-    left_side = encode_left_side(barcode_number, type)
-    right_side = encode_right_side(barcode_number, type)
+    left_side = encode_left_side(leading_digit, left_digits)
+    right_side = encode_right_side(right_digits)
     return f"{SIDE_GUARD}{left_side}{MIDDLE_GUARD}{right_side}{SIDE_GUARD}"
 
 
 def generate_notches(unit_width: int, type="EAN-13") -> str:
-    """Generates text notches (extensions of the side and middle guards making room for optional text.)"""
+    """Generates text notches (extensions of the side and middle guards making room for the optional text.)"""
     side: str = "".join(bit * unit_width for bit in SIDE_GUARD)
     middle: str = "".join(bit * unit_width for bit in MIDDLE_GUARD)
     empty_space: str = "0" * UNITS_PER_SIDE[type] * unit_width
@@ -185,8 +174,7 @@ def generate_pbm_data(bit_string: str,
                       unit_width: int=1,
                       barcode_height: int=40,
                       notch_height: int=0,
-                      border: int=0,
-                      text: bool=True) -> str:
+                      border: int=0) -> str:
     """Returns a string containing the barcode image data in PBM format."""
     width: int = len(bit_string) * unit_width + border * 2
     height: int = barcode_height + max(int(unit_width * 9.5), notch_height) + border * 2
