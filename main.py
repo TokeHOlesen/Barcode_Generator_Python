@@ -4,7 +4,6 @@ from typing import Generator
 
 SIDE_GUARD = "101"
 MIDDLE_GUARD = "01010"
-DIGITS_PER_SIDE = {"EAN-13": 6, "UPC-A": 6, "EAN-8": 4}
 UNITS_PER_SIDE = {"EAN-13": 42, "UPC-A": 42, "EAN-8": 28}
 
 # Values for encoding the left-hand side of the barcode, in decimal.
@@ -55,31 +54,43 @@ ean_13_encoding = {
 
 
 def main():
-    barcode = "044670012826"
+    barcode = "90311017"
     unit_width = 6
-    height = 300
+    barcode_height = 300
     notch_height = 30
-    border = 50
+    border = {"Left": 10, "Right": 10, "Top": 10, "Bottom": 10}
     barcode_type = get_type(barcode)
+    if barcode_type == "EAN-13":
+        border["Left"] += 40
     leading_digit, left_digits, right_digits = get_number_groups(barcode, barcode_type)
+    draw_digits = True
     
     barcode_string = encode_barcode(leading_digit, left_digits, right_digits)
-    pbm_data = generate_pbm_data(barcode_string, unit_width=unit_width, barcode_height=height, notch_height=notch_height, border=border, type=barcode_type)
+    pbm_data = generate_pbm_data(barcode_string, border, unit_width=unit_width, barcode_height=barcode_height, notch_height=notch_height, type=barcode_type, draw_digits=draw_digits)
     
     pbm_memory_file = io.BytesIO(pbm_data.encode("utf-8"))        
     pillow_image = Image.open(pbm_memory_file)
     pillow_image = pillow_image.convert("RGB")
-    font = ImageFont.truetype("OCR-B.ttf", unit_width * 8)
-    draw = ImageDraw.Draw(pillow_image)
-    left_text_x_pos = border + unit_width * 3 + unit_width
-    right_text_x_pos = border + unit_width * 3 + unit_width * (47 - int(barcode_type == "EAN-8") * 14)
-    text_y_pos = border + height + int(unit_width * 1.5)
-    draw.text((left_text_x_pos, text_y_pos), left_digits, fill="black", anchor="lt", font=font)
-    draw.text((right_text_x_pos, text_y_pos), right_digits, fill="black", anchor="lt", font=font)
+    if draw_digits:
+        draw_digit_text(pillow_image, str(leading_digit), left_digits, right_digits, border, unit_width, barcode_height, barcode_type)
     pillow_image.show()
 
 
+def draw_digit_text(image, leading_digit, left_digits, right_digits, border, unit_width, barcode_height, barcode_type):
+    font = ImageFont.truetype("OCR-B.ttf", unit_width * 8)
+    draw = ImageDraw.Draw(image)
+    leading_digit_x_pos = border["Left"] - 45
+    left_text_x_pos = border["Left"] + unit_width * 4
+    right_text_x_pos = border["Left"] + unit_width * 3 + unit_width * (47 - int(barcode_type == "EAN-8") * 14)
+    text_y_pos = border["Top"] + barcode_height + int(unit_width * 1.5)
+    if barcode_type == "EAN-13":
+        draw.text((leading_digit_x_pos, text_y_pos), leading_digit, fill="black", anchor="lt", font=font)
+    draw.text((left_text_x_pos, text_y_pos), left_digits, fill="black", anchor="lt", font=font)
+    draw.text((right_text_x_pos, text_y_pos), right_digits, fill="black", anchor="lt", font=font)
+
+
 def get_number_groups(barcode_number: str, barcode_type: str) -> tuple[int, str, str]:
+    """Returns a tuple containing all the digit groups: the leading digit, left digits, and right digits."""
     first_digit = {"EAN-13": 1, "UPC-A": 0, "EAN-8": 0}
     digits_per_side = {"EAN-13": 7, "UPC-A": 6, "EAN-8": 4}
     leading_digit = int(barcode_number[0]) if barcode_type == "EAN-13" else 0
@@ -170,24 +181,26 @@ def generate_notches(unit_width: int, type="EAN-13") -> str:
     
 
 def generate_pbm_data(bit_string: str,
+                      border,
                       type: str="EAN-13",
                       unit_width: int=1,
                       barcode_height: int=40,
                       notch_height: int=0,
-                      border: int=0) -> str:
+                      draw_digits: bool=True) -> str:
     """Returns a string containing the barcode image data in PBM format."""
-    width: int = len(bit_string) * unit_width + border * 2
-    height: int = barcode_height + max(int(unit_width * 9.5), notch_height) + border * 2
-    side_border: str = "0" * border
-    top_border_lines: str = (("0" * width) + "\n") * border
-    bottom_border_lines: str = (("0" * width) + "\n") * (border + max(int(unit_width * 9.5), notch_height))
-    barcode_lines: str = (side_border + "".join(bit * unit_width for bit in bit_string) + side_border + "\n") * barcode_height
+    width: int = len(bit_string) * unit_width + border["Left"] + border["Right"]
+    height: int = barcode_height + max(int(unit_width * 9.5 * draw_digits), notch_height) + border["Top"] + border["Bottom"]
+    left_border: str = "0" * border["Left"]
+    right_border: str = "0" * border["Right"]
+    top_border_lines: str = (("0" * width) + "\n") * border["Top"]
+    bottom_border_lines: str = (("0" * width) + "\n") * (border["Bottom"] + max(int(unit_width * 9.5), notch_height))
+    barcode_lines: str = (left_border + "".join(bit * unit_width for bit in bit_string) + right_border + "\n") * barcode_height
     
     pbm_data = f"P1\n# {type} BARCODE\n{width} {height}\n"
     pbm_data += top_border_lines
     pbm_data += barcode_lines
     if notch_height:
-        pbm_data += ("".join((side_border, generate_notches(unit_width, type), side_border, "\n"))) * notch_height
+        pbm_data += ("".join((left_border, generate_notches(unit_width, type), right_border, "\n"))) * notch_height
     pbm_data += bottom_border_lines
     return pbm_data
     
