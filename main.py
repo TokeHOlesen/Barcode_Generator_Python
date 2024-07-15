@@ -2,7 +2,7 @@ import argparse
 import io
 import sys
 from PIL import Image, ImageDraw, ImageFont
-from typing import Dict, Generator
+from typing import Dict, Generator, Tuple
 
 SIDE_GUARD = "101"
 MIDDLE_GUARD = "01010"
@@ -45,7 +45,7 @@ right_encoding = {
 # Values for encoding the very first digit of EAN-13 barcodes. The digit is encoded within the left-side 6 digits as a
 # combination of their parity, where odd parity = 0 and even parity = 1.
 # For example, the digit one is encoded as 11, that is binary 001011, or "odd", "odd", "even", "odd", "even", "even".
-ean_13_encoding = {
+leading_digit_encoding = {
     0: 0,
     1: 11,
     2: 13,
@@ -64,7 +64,7 @@ def main():
     arg_parser.add_argument("barcode_number", type=str, help="The numeric value of the barcode to be generated")
     arg_parser.add_argument("-o", "--outputpath", type=str, help="The output path for the barcode file")
     arg_parser.add_argument("-w", "--unitwidth", type=positive_int, default=6, help="The width of a single encoding unit (bar) in pixels")
-    arg_parser.add_argument("-v", "--verticalsize", type=positive_int, default=400, help="The height of the barcode itself (excluding optional text and text notches), in pixels")
+    arg_parser.add_argument("-v", "--verticalsize",type=positive_int, default=400, help="The height of the barcode itself (excluding optional text and text notches), in pixels")
     arg_parser.add_argument("-n", "--notch", type=non_negative_int, help="The length of the text notches, in pixels")
     arg_parser.add_argument("-B", "--border", type=non_negative_int, default=20, help="The width of the border (quiet area) on all sides")
     arg_parser.add_argument("-l", "--leftborder", type=non_negative_int, help="The width of the border (quiet area) on the left side")
@@ -75,49 +75,55 @@ def main():
     arg_parser.add_argument("-s", "--bitstring", action="store_true", help="Output a string of bits, where 0 and 1 correspond to white and black bars, respectively")
     args = arg_parser.parse_args()
     
-    barcode = args.barcode_number
+    barcode: str = args.barcode_number
     try:
-        barcode_type = get_type(barcode)
+        barcode_type: str = get_type(barcode)
     except ValueError:
         sys.exit("Error: incorrect barcode number (must consist of 8, 12 or 13 digits, no spaces, numeric only).")
     
     if not checksum_is_correct(barcode):
         print(f"Warning: the entered {barcode_type} barcode number is incorrect and won't be scannable (checksum failed).")
-        corrected_barcode = checksum_is_correct(barcode, return_corrected=True)
+        corrected_barcode: str = checksum_is_correct(barcode, return_corrected=True)
         print(f"If only the check digit (the final digit) is incorrect, you can use {corrected_barcode} instead.")
         while True:
-            use_corrected = input("Do you want to use the corrected number? (Y/N) ").upper().strip()
+            use_corrected: str = input("Do you want to use the corrected number? (Y/N) ").upper().strip()
             if use_corrected == "Y":
                 barcode = corrected_barcode
                 break
             elif use_corrected == "N":
                 sys.exit()
             
-    output_path = args.outputpath if args.outputpath is not None else f"./barcode_{barcode_type}_{barcode}.png"
-    unit_width = args.unitwidth
-    barcode_height = args.verticalsize
+    output_path: str = args.outputpath if args.outputpath is not None else f"barcode_{barcode_type}_{barcode}.png"
+    unit_width: int = args.unitwidth
+    barcode_height: int = args.verticalsize
     # If the height of the notch is not specified, it will reach halfway down the digits, even if they're not visible.
-    default_notch_height = int(unit_width * (FONT_SIZE_FACTOR + TEXT_Y_OFFSET * 2)) // 2
-    notch_height = args.notch if args.notch is not None else default_notch_height
+    default_notch_height: int = int(unit_width * (FONT_SIZE_FACTOR + TEXT_Y_OFFSET * 2)) // 2
+    notch_height: int = args.notch if args.notch is not None else default_notch_height
     # Sets the width of all individual borders to args.border
-    border = {side: args.border for side in ["Left", "Right", "Top", "Bottom"]}
-    # If a value has been provided for any individual border, changes it; this overwrites args.border.
+    border: Dict[str, int] = {side: args.border for side in ["Left", "Right", "Top", "Bottom"]}
+    # If a value has been provided for any individual border, changes it; this overwrites args.border's global setting.
     border["Left"] = args.leftborder if args.leftborder is not None else border["Left"]
     border["Right"] = args.rightborder if args.rightborder is not None else border["Right"]
     border["Top"] = args.topborder if args.topborder is not None else border["Top"]
     border["Bottom"] = args.bottomborder if args.bottomborder is not None else border["Bottom"]
     
-    draw_digits = args.nodigits
+    draw_digits: bool = args.nodigits
     if draw_digits and barcode_type == "EAN-13":
         border["Left"] += unit_width * EAN_13_LEFT_BORDER_EXTENSION_FACTOR
-    digit_groups = get_digit_groups(barcode, barcode_type)
+        
+    # Splits the barcode into groups of digits according to the barcode's type.
+    # Element [0] is the EAN-13 leading digit ("0" if not EAN-13), [1] is left side digits, [2] is right side digits.
+    digit_groups: Tuple[str, str, str] = get_digit_groups(barcode, barcode_type)
     
+    # Generates a string of 1s and 0s corresponding to the barcode's bars: 0 for white, 1 for black.
     barcode_string = encode_barcode(*digit_groups)
     
+    # If the user passed the -s | --bitstring parameter, outputs barcode_string and exits.
     if args.bitstring:
         print(barcode_string)
         sys.exit()
     
+    # Generates a string that encodes the barcode image (without any text) in the PBM format (1-bit monochrome).
     pbm_data = generate_pbm_data(barcode_string,
                                  border,
                                  unit_width=unit_width,
@@ -126,26 +132,24 @@ def main():
                                  type=barcode_type,
                                  draw_digits=draw_digits)
     
-    pbm_memory_file = io.BytesIO(pbm_data.encode("utf-8"))        
-    pillow_image = Image.open(pbm_memory_file)
-    pillow_image = pillow_image.convert("RGB")
+    # Loads the PBM data into Pillow and returns an Image object.
+    pillow_image = convert_to_pillow_image(pbm_data)
+    
+    # Unless the user passed the -d | --nodigits parameter, draws the digits as text onto the Pillow Image.
     if draw_digits:
         draw_digit_text(pillow_image, *digit_groups, border, unit_width, barcode_height, barcode_type)
     
-    try:
-        pillow_image.save(output_path)
-    except ValueError:
-        sys.exit("Error: unsupported file format.")
-    except OSError:
-        sys.exit("Error: file could not be written.")
+    # Converts the Pillow Image and saves it to file; the format is determined by the file's extension (PNG by default).
+    save_pillow_image(pillow_image, output_path)
     
+    # If we made it this far, outputs a confirmation for the user.
     print(f"Barcode number: {barcode}")
     print(f"Encoding format: {barcode_type}")
     print(f'File saved successfully to "{output_path}".')
 
 
 def positive_int(n: int) -> int:
-    """Converts n to an integer; if it's not positive, raises an exception."""
+    """A custom type for use with argparse: if the entered number is not a positive integer, raises an exception."""
     try:
         n = int(n)
         if n <= 0:
@@ -156,7 +160,7 @@ def positive_int(n: int) -> int:
 
 
 def non_negative_int(n: int) -> int:
-    """Converts n to an integer; if it's negative, raises an exception."""
+    """A custom type for use with argparse: if the entered number is not a non-negative integer, raises an exception."""
     try:
         n = int(n)
         if n < 0:
@@ -164,6 +168,24 @@ def non_negative_int(n: int) -> int:
     except ValueError:
         raise argparse.ArgumentTypeError(f"{n} is not a non-negative integer.")
     return n
+
+
+def convert_to_pillow_image(pbm_data: str) -> Image:
+    """Converts a PBM string into a Pillow Image object."""
+    pbm_memory_file = io.BytesIO(pbm_data.encode("utf-8"))        
+    pillow_image = Image.open(pbm_memory_file)
+    pillow_image = pillow_image.convert("L") # Converts pillow_image to 8-bit grayscale
+    return pillow_image
+
+
+def save_pillow_image(image: Image, path: str):
+    """Saves the Pillow Image object to file, in the format specified in the file's extension."""
+    try:
+        image.save(path)
+    except ValueError:
+        sys.exit("Error: unsupported file format.")
+    except OSError:
+        sys.exit("Error: file could not be written.")
 
 
 def draw_digit_text(image: Image,
@@ -261,7 +283,7 @@ def encode_left_side(leading_digit: str, left_digits: str) -> str:
     output: str = ""
     for i, digit in enumerate(left_digits):
         # Gets the bit to be used as the key to get the correct value from left_encoding.
-        parity: int = ean_13_encoding[int(leading_digit)] >> (5 - i) & 1
+        parity: int = leading_digit_encoding[int(leading_digit)] >> (5 - i) & 1
         output += encode_digit(int(digit), parity)
     return output
 
@@ -289,8 +311,8 @@ def generate_notches(unit_width: int, type: str) -> str:
 def generate_pbm_data(bit_string: str,
                       border: Dict[str, int],
                       type: str="EAN-13",
-                      unit_width: int=1,
-                      barcode_height: int=40,
+                      unit_width: int=6,
+                      barcode_height: int=400,
                       notch_height: int=0,
                       draw_digits: bool=True) -> str:
     """
