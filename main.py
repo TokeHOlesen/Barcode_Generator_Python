@@ -1,6 +1,7 @@
 import argparse
 import io
 import sys
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Dict, Generator, Tuple
 
@@ -84,7 +85,7 @@ def main():
     if not checksum_is_correct(barcode):
         print(f"Warning: the entered {barcode_type} barcode number is incorrect and won't be scannable (checksum failed).")
         corrected_barcode: str = checksum_is_correct(barcode, return_corrected=True)
-        print(f"If only the check digit (the final digit) is incorrect, you can use {corrected_barcode} instead.")
+        print(f"If only the check digit (the final digit) is incorrect, you can use \"{corrected_barcode}\" instead.")
         while True:
             use_corrected: str = input("Do you want to use the corrected number? (Y/N) ").upper().strip()
             if use_corrected == "Y":
@@ -92,8 +93,8 @@ def main():
                 break
             elif use_corrected == "N":
                 sys.exit()
-            
-    output_path: str = args.outputpath if args.outputpath is not None else f"barcode_{barcode_type}_{barcode}.png"
+    
+    output_path: Path = Path(args.outputpath) if args.outputpath is not None else Path.cwd() / f"barcode_{barcode_type}_{barcode}.png"
     unit_width: int = args.unitwidth
     barcode_height: int = args.verticalsize
     # If the height of the notch is not specified, it will reach halfway down the digits, even if they're not visible.
@@ -132,7 +133,7 @@ def main():
                                  type=barcode_type,
                                  draw_digits=draw_digits)
     
-    # Loads the PBM data into Pillow and returns an Image object.
+    # Loads the PBM data into Pillow and gets an Image object.
     pillow_image = convert_to_pillow_image(pbm_data)
     
     # Unless the user passed the -d | --nodigits parameter, draws the digits as text onto the Pillow Image.
@@ -143,8 +144,8 @@ def main():
     save_pillow_image(pillow_image, output_path)
     
     # If we made it this far, outputs a confirmation for the user.
-    print(f"Barcode number: {barcode}")
-    print(f"Encoding format: {barcode_type}")
+    print(f"Barcode number: {barcode}.")
+    print(f"Encoding format: {barcode_type}.")
     print(f'File saved successfully to "{output_path}".')
 
 
@@ -178,14 +179,33 @@ def convert_to_pillow_image(pbm_data: str) -> Image:
     return pillow_image
 
 
-def save_pillow_image(image: Image, path: str):
-    """Saves the Pillow Image object to file, in the format specified in the file's extension."""
+def save_pillow_image(image: Image, path: Path):
+    """
+    Saves the Pillow Image object to file, in the format specified in the file's extension.
+    If a file with the specified name already exists, asks if it's ok to overwrite.
+    If the file's entension doesn't indicate a correct image format, or if the provided path is incorrect,
+    raises an exception and exits.
+    """
+    if path.is_dir():
+            sys.exit("Error: no filename provided.")
+    if path.suffix == "":
+            sys.exit("Error: filename has no extension.")
+    if path.exists():
+        while True:
+            reply = input(f"The file \"{path}\" already exists. Do you want to overwrite it? (Y/N) ").upper().strip()
+            if reply == "Y":
+                break
+            elif reply == "N":
+                sys.exit()
     try:
         image.save(path)
     except ValueError:
-        sys.exit("Error: unsupported file format.")
-    except OSError:
-        sys.exit("Error: file could not be written.")
+        sys.exit(f"Error: \"{path.suffix}\": incorrect or unsupported file format.")
+    except OSError as e:
+        if str(e)[0:9] == "[Errno 2]":
+            sys.exit("Error: incorrect path: no such directory.")
+        else:
+            sys.exit("Error: file could not be written.")
 
 
 def draw_digit_text(image: Image,
@@ -223,7 +243,7 @@ def get_digit_groups(barcode_number: str, barcode_type: str) -> tuple[str, str, 
 
 
 def checksum_is_correct(barcode_number: str, return_corrected: bool=False) -> bool | str:
-    """Returns True if the checksum number is correct."""
+    """Returns True if the checksum number is correct. If return_corrected is True, returns a corrected barcode."""
     # Gets the last digit of the barcode, which is the check digit
     check_digit: int = int(barcode_number[-1])
     # Removes the last digit and reverses the order of the remaining numbers
