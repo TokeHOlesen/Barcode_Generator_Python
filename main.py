@@ -62,30 +62,52 @@ leading_digit_encoding = {
 
 def main():
     arg_parser = argparse.ArgumentParser(description="EAN and UPC Barcode Generator")
-    arg_parser.add_argument("barcode_number", type=str, help="The numeric value of the barcode to be generated")
-    arg_parser.add_argument("-o", "--outputpath", type=str, help="The output path for the barcode file")
-    arg_parser.add_argument("-w", "--unitwidth", type=positive_int, default=6, help="The width of a single encoding unit (bar) in pixels")
-    arg_parser.add_argument("-v", "--verticalsize",type=positive_int, default=400, help="The height of the barcode itself (excluding optional text and text notches), in pixels")
-    arg_parser.add_argument("-n", "--notch", type=non_negative_int, help="The length of the text notches, in pixels")
-    arg_parser.add_argument("-B", "--border", type=non_negative_int, default=20, help="The width of the border (quiet area) on all sides")
-    arg_parser.add_argument("-l", "--leftborder", type=non_negative_int, help="The width of the border (quiet area) on the left side")
-    arg_parser.add_argument("-r", "--rightborder", type=non_negative_int, help="The width of the border (quiet area) on the right side")
-    arg_parser.add_argument("-t", "--topborder", type=non_negative_int, help="The width of the border (quiet area) on the top")
-    arg_parser.add_argument("-b", "--bottomborder", type=non_negative_int, help="The width of the border (quiet area) on the bottom")
-    arg_parser.add_argument("-d", "--nodigits", action="store_false", help="Do not draw human-readable digits underneath the barcode")
-    arg_parser.add_argument("-s", "--bitstring", action="store_true", help="Output a string of bits, where 0 and 1 correspond to white and black bars, respectively")
+    arg_parser.add_argument("barcode_number", type=str,
+                            help="The numeric value of the barcode to be generated")
+    arg_parser.add_argument("-o", "--outputpath", type=str,
+                            help="The output path for the barcode file")
+    arg_parser.add_argument("-w", "--unitwidth", type=positive_int, default=6,
+                            help="The width of a single encoding unit (bar) in pixels")
+    arg_parser.add_argument("-v", "--verticalsize",type=positive_int, default=400,
+                            help="The height of the barcode itself (excluding optional text and text notches), "
+                            "in pixels")
+    arg_parser.add_argument("-n", "--notch", type=non_negative_int,
+                            help="The length of the text notches, in pixels")
+    arg_parser.add_argument("-B", "--border", type=non_negative_int, default=20,
+                            help="The width of the border (quiet area) on all sides")
+    arg_parser.add_argument("-l", "--leftborder", type=non_negative_int,
+                            help="The width of the border (quiet area) on the left side")
+    arg_parser.add_argument("-r", "--rightborder", type=non_negative_int,
+                            help="The width of the border (quiet area) on the right side")
+    arg_parser.add_argument("-t", "--topborder", type=non_negative_int,
+                            help="The width of the border (quiet area) at the top")
+    arg_parser.add_argument("-b", "--bottomborder", type=non_negative_int,
+                            help="The width of the border (quiet area) on the bottom")
+    arg_parser.add_argument("-d", "--nodigits", action="store_false",
+                            help="Do not draw human-readable digits underneath the barcode")
+    arg_parser.add_argument("-s", "--bitstring", action="store_true",
+                            help="Output a string of bits, where 0 and 1 correspond to white and black bars, "
+                            "respectively")
     args = arg_parser.parse_args()
     
     barcode: str = args.barcode_number
+    
+    # Attempts to recognize the barcode format. If it's incorrect, raises an exception and exits.
     try:
         barcode_type: str = get_type(barcode)
     except ValueError:
         sys.exit("Error: incorrect barcode number (must consist of 8, 12 or 13 digits, no spaces, numeric only).")
     
+    # Checks if the checksum in the provided number is correct. If not, asks the user if they want to correct the
+    # checksum number and proceed anyway.
     if not checksum_is_correct(barcode):
-        print(f"Warning: the entered {barcode_type} barcode number is incorrect and won't be scannable (checksum failed).")
+        print(f"Warning: the entered {barcode_type} barcode number is incorrect and won't be scannable "
+              "(checksum failed).")
         corrected_barcode: str = checksum_is_correct(barcode, return_corrected=True)
-        print(f"If only the check digit (the final digit) is incorrect, you can use \"{corrected_barcode}\" instead.")
+        print("If you are sure that only the check digit (the final digit) is incorrect, "
+              f"you can use \"{corrected_barcode}\" instead.")
+        print("Please keep in mind that an incorrect checksum indicates that any part of the number can be "
+              "incorrect, not just the checksum digit.")
         while True:
             use_corrected: str = input("Do you want to use the corrected number? (Y/N) ").upper().strip()
             if use_corrected == "Y":
@@ -94,7 +116,9 @@ def main():
             elif use_corrected == "N":
                 sys.exit()
     
-    output_path: Path = Path(args.outputpath) if args.outputpath is not None else Path.cwd() / f"barcode_{barcode_type}_{barcode}.png"
+    # If no output path has been passed, sets it to the currect working directory using the default file naming format.
+    output_path: Path = Path(args.outputpath) if args.outputpath is not None else Path.cwd(
+        ) / f"barcode_{barcode_type}_{barcode}.png"
     unit_width: int = args.unitwidth
     barcode_height: int = args.verticalsize
     # If the height of the notch is not specified, it will reach halfway down the digits, even if they're not visible.
@@ -108,6 +132,8 @@ def main():
     border["Top"] = args.topborder if args.topborder is not None else border["Top"]
     border["Bottom"] = args.bottomborder if args.bottomborder is not None else border["Bottom"]
     
+    # If the text is to be drawn underneath the barcode and the barcode type is EAN-13, extends the left border to make
+    # room for the extra digit.
     draw_digits: bool = args.nodigits
     if draw_digits and barcode_type == "EAN-13":
         border["Left"] += unit_width * EAN_13_LEFT_BORDER_EXTENSION_FACTOR
@@ -219,11 +245,18 @@ def draw_digit_text(image: Image,
     """Draws the optional text underneath the barcode."""
     font_size: int = unit_width * FONT_SIZE_FACTOR
     leading_digit_x: int = border["Left"] - (unit_width * EAN_13_LEADING_DIGIT_SHIFT)
-    left_text_x: int = border["Left"] + unit_width * (len(SIDE_GUARD) + 1) # Shifts text by +1 unit because of side guard
-    right_text_x: int = border["Left"] + unit_width * (UNITS_PER_SIDE[barcode_type] + len(SIDE_GUARD) + len(MIDDLE_GUARD))
+    # Shifts the text to the right by +1 unit because the side guard ends with a black bar and would touch the text.
+    left_text_x: int = border["Left"] + unit_width * (len(SIDE_GUARD) + 1)
+    right_text_x: int = border["Left"] + unit_width * (UNITS_PER_SIDE[barcode_type] + len(SIDE_GUARD) +
+                                                       len(MIDDLE_GUARD))
     text_y: int = border["Top"] + barcode_height + int(unit_width * TEXT_Y_OFFSET)
     
-    font: ImageFont = ImageFont.truetype("OCR-B.ttf", font_size)
+    try:
+        font: ImageFont = ImageFont.truetype("OCR-B.ttf", font_size)
+    except OSError:
+        sys.exit("Error: cannot find the font file \"OCR-B.ttf\". "
+                 "Make sure that it's in the same directory as the script.\n"
+                 "You can still generate the barcode without text, by using the -d or --nodigits parameter.")
     draw: ImageDraw = ImageDraw.Draw(image)
     
     if barcode_type == "EAN-13":
@@ -346,7 +379,8 @@ def generate_pbm_data(bit_string: str,
     right_border: str = "0" * border["Right"]
     top_border_lines: str = (("0" * width) + "\n") * border["Top"]
     bottom_border_lines: str = (("0" * width) + "\n") * (border["Bottom"] + height_extension)
-    barcode_lines: str = (left_border + "".join(bit * unit_width for bit in bit_string) + right_border + "\n") * barcode_height
+    barcode_lines: str = (left_border + "".join(bit * unit_width for bit in bit_string) + right_border +
+                          "\n") * barcode_height
     
     pbm_data: str = f"P1\n# {type} BARCODE\n{width} {height}\n"
     pbm_data += top_border_lines
