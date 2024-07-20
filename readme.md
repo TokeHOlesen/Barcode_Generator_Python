@@ -1,6 +1,6 @@
 # BARCODE GENERATOR
 #### Author: Toke Henrik Olesen
-#### Video Demo: TODO
+#### Video Demo: https://youtu.be/s6CXqSd9Tng
 
 ![Screenshot](barcode_generator.png)
 
