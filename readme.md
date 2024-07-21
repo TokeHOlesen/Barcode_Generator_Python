@@ -1,6 +1,7 @@
 # BARCODE GENERATOR
 #### Author: Toke Henrik Olesen
 #### Video Demo: https://youtu.be/s6CXqSd9Tng
+#### Originally submitted as a final project for CS50p, hence the detailed Readme.
 
 ![Screenshot](barcode_generator.png)
 
