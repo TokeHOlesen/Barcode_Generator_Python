@@ -117,8 +117,10 @@ def main():
                 sys.exit()
     
     # If no output path has been passed, sets it to the currect working directory using the default file naming format.
+    default_file_name = f"barcode_{barcode_type}_{barcode}.png"
     output_path: Path = Path(args.outputpath) if args.outputpath is not None else Path.cwd(
-        ) / f"barcode_{barcode_type}_{barcode}.png"
+        ) / default_file_name
+    output_path = output_path / default_file_name if output_path.is_dir() else output_path
     unit_width: int = args.unitwidth
     barcode_height: int = args.verticalsize
     # If the height of the notch is not specified, it will reach halfway down the digits, even if they're not visible.
@@ -197,23 +199,20 @@ def non_negative_int(n: int) -> int:
     return n
 
 
-def convert_to_pillow_image(pbm_data: str) -> Image:
+def convert_to_pillow_image(pbm_data: str):
     """Converts a PBM string into a Pillow Image object."""
     pbm_memory_file = io.BytesIO(pbm_data.encode("utf-8"))        
-    pillow_image = Image.open(pbm_memory_file)
-    pillow_image = pillow_image.convert("L") # Converts pillow_image to 8-bit grayscale
+    pillow_image = Image.open(pbm_memory_file).convert("L") # Converts pillow_image to 8-bit grayscale
     return pillow_image
 
 
-def save_pillow_image(image: Image, path: Path):
+def save_pillow_image(image, path: Path):
     """
     Saves the Pillow Image object to file, in the format specified in the file's extension.
     If a file with the specified name already exists, asks if it's ok to overwrite.
     If the file's entension doesn't indicate a correct image format, or if the provided path is incorrect,
     raises an exception and exits.
     """
-    if path.is_dir():
-            sys.exit("Error: no filename provided.")
     if path.suffix == "":
             sys.exit("Error: filename has no extension.")
     if path.exists():
@@ -234,7 +233,7 @@ def save_pillow_image(image: Image, path: Path):
             sys.exit("Error: file could not be written.")
 
 
-def draw_digit_text(image: Image,
+def draw_digit_text(image,
                     leading_digit: str,
                     left_digits: str,
                     right_digits: str,
@@ -252,12 +251,12 @@ def draw_digit_text(image: Image,
     text_y: int = border["Top"] + barcode_height + int(unit_width * TEXT_Y_OFFSET)
     
     try:
-        font: ImageFont = ImageFont.truetype("OCR-B.ttf", font_size)
+        font = ImageFont.truetype("OCR-B.ttf", font_size)
     except OSError:
         sys.exit("Error: cannot find the font file \"OCR-B.ttf\". "
                  "Make sure that it's in the same directory as the script.\n"
                  "You can still generate the barcode without text, by using the -d or --nodigits parameter.")
-    draw: ImageDraw = ImageDraw.Draw(image)
+    draw = ImageDraw.Draw(image)
     
     if barcode_type == "EAN-13":
         draw.text((leading_digit_x, text_y), leading_digit, fill="black", anchor="lt", font=font)
@@ -280,7 +279,7 @@ def checksum_is_correct(barcode_number: str, return_corrected: bool=False) -> bo
     # Gets the last digit of the barcode, which is the check digit
     check_digit: int = int(barcode_number[-1])
     # Removes the last digit and reverses the order of the remaining numbers
-    barcode_number: str = barcode_number[-2::-1]
+    barcode_number = barcode_number[-2::-1]
     checksum: int = 0
     for i, digit in enumerate(barcode_number):
         checksum += int(digit) * 3 if i % 2 == 0 else int(digit)
@@ -309,7 +308,7 @@ def get_type(barcode: str) -> str:
             raise ValueError("Incorrect number of digits.")
         
 
-def get_bits(number: int, length: int) -> Generator[bool, None, None]:
+def get_bits(number: int, length: int) -> Generator[int, None, None]:
     """Generates the specified number of bits of a number, starting with the least significant bit."""
     for i in range(length - 1, -1, -1):
         yield number >> i & 1
@@ -346,7 +345,7 @@ def encode_right_side(right_digits: str) -> str:
     return "".join(encode_digit(int(digit)) for digit in right_digits)
 
 
-def encode_barcode(leading_digit: int, left_digits: str, right_digits: str) -> str:
+def encode_barcode(leading_digit: str, left_digits: str, right_digits: str) -> str:
     """Returns the entire barcode as a string of bits."""
     left_side: str = encode_left_side(leading_digit, left_digits)
     right_side: str = encode_right_side(right_digits)
