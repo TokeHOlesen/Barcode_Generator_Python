@@ -1,6 +1,7 @@
 import argparse
 import io
 import sys
+from importlib import resources
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from typing import Dict, Generator, Tuple
@@ -251,7 +252,8 @@ def draw_digit_text(image,
     text_y: int = border["Top"] + barcode_height + int(unit_width * TEXT_Y_OFFSET)
     
     try:
-        font = ImageFont.truetype("OCR-B.ttf", font_size)
+        with resources.files("barcodegen.fonts").joinpath("OCR-B.ttf").open("rb") as font_file:
+            font = ImageFont.truetype(font_file, font_size)
     except OSError:
         sys.exit("Error: cannot find the font file \"OCR-B.ttf\". "
                  "Make sure that it's in the same directory as the script.\n"
@@ -392,4 +394,3 @@ def generate_pbm_data(bit_string: str,
 
 if __name__ == "__main__":
     main()
-    
