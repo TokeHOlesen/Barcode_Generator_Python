@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "barcodegen"
+version = "1.0.0"
+readme = "readme.md"
+description = "A CLI barcode generator. Supports UPC, EAN-13 and EAN-8."
+keywords = ["barcode", "generator", "EAN", "UPC", "CLI"]
+requires-python = ">=3.9"
+authors = [{ name = "Toke Henrik Olesen" }]
+classifiers = ["Programming Language :: Python :: 3"]
+dependencies = ["pillow>=10.4.0"]
+
+[project.scripts]
+barcodegen = "barcodegen.__main__:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+barcodegen = ["fonts/OCR-B.ttf"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
