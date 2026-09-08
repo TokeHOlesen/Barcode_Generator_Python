@@ -45,7 +45,7 @@ def barcode(params: Annotated[BarcodeParameters, Query()]):
     except BarcodeChecksumError as e:
         raise HTTPException(status_code=422, detail={
             "message": "Barcode checksum is incorrect.",
-            "barcode": e.barcode,
+            "incorrect_barcode": e.barcode,
             "corrected_barcode": e.corrected_barcode})
 
     except ValueError as e:
