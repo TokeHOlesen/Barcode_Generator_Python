@@ -14,15 +14,15 @@ class BarcodeChecksumError(ValueError):
 
 
 def generate_barcode_image(barcode: str,
-                           unit_width: int = 6,
-                           barcode_height: int = 400,
-                           notch_height: int | None = None,
-                           border_width: int = 20,
+                           unit_width: int = 10,
+                           barcode_height: int = 200,
+                           notch_height: int = 0,
+                           border_width: int = 0,
                            left_border: int | None = None,
                            right_border: int | None = None,
                            top_border: int | None = None,
                            bottom_border: int | None = None,
-                           draw_digits: bool = True) -> Image.Image:
+                           draw_digits: bool = False) -> Image.Image:
     """Generates a barcode image in the Pillow format."""
 
     # Determines the encoding type (UPC-A, EAN-8, EAN-13)
