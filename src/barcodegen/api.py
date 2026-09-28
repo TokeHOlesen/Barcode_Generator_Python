@@ -52,6 +52,6 @@ def barcode(params: Annotated[BarcodeParameters, Query()]):
         raise HTTPException(status_code=422, detail=str(e))
 
     buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
+    image.save(buffer, format="PNG", dpi=(203, 203))
     filename = f"barcode_{params.barcode_number}.png"
     return Response(content=buffer.getvalue(), media_type="image/png", headers={"Content-Disposition": f'inline; filename="{filename}"'})
